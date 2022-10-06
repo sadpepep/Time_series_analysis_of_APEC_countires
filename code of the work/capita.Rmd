@@ -1,0 +1,604 @@
+---
+title: "wf"
+output: html_document
+Sources: data.worldbank.org
+editor_options: 
+  chunk_output_type: inline
+---
+Какие свойства имеет анализируемый временной ряд, которые влияют на особенности построения его прогноза?
+
+*	Провести анализ указанных одномерных временных рядов, построить обоснованные интервальные прогнозы
+*	Включить в модель ARCH-эффект, для прогноза цен финансовых инструментов обязательно учитывать эффект толстых хвостов при построении прогноза
+*	Провести анализ структурных разрывов
+*	Построить соответствующую заданию факторную модель (ARDL/VAR, коинтеграция) и оценить, как она влияет на прогнозы
+
+
+Построить прогнозы на 30 лет по динамике реального ВВП, реального ВВП на душу населения и численности населения. 
+
+Исследовать преимущества следующей аналитической модели для прогнозирования реального ВВП:
+Динамика_реального_ВВП = реальный_ВВП_на_душу_населения * Численность_населения
+
+Для этого изучить существующие зависимости в данных показателях между странами (анализ многомерных рядов).
+
+```{r}
+library(tibble)
+library(readxl)
+library(dplyr)
+library(urca)
+library(forecast)
+library(lmtest)
+library(tseries)
+library(TSA)
+library(rugarch)
+library(fGarch)
+library(strucchange)
+library(stringr)
+library(vars)
+library(portes)
+
+
+cap = read_excel("data.xlsx", sheet = "cap")
+
+
+#Тест Дики-Фуллера (tstatistics > -2.89, ряд не стационарный)
+
+pacf(diff(log(cap$ch), differences = 2))
+ur.df(diff(log(cap$ch), differences = 2), type = 'drift', lags = 2, selectlags = 'Fixed')
+adf.test(diff(log(cap$ch), differences = 2), alternative = 'stationary', k = 2)
+pp.test(diff(log(cap$ch), differences = 2), alternative = 'stationary') 
+kpss.test(diff(log(cap$ch), differences = 2))
+
+pacf(diff(log(cap$ja), differences = 2))
+ur.df(diff(log(cap$ja), differences = 2), type = 'drift', lags = 2, selectlags = 'Fixed')
+adf.test(diff(log(cap$ja), differences = 2), alternative = 'stationary', k = 2)
+pp.test(diff(log(cap$ja), differences = 2), alternative = 'stationary') 
+kpss.test(diff(log(cap$ja), differences = 2))
+
+pacf(diff(log(cap$ko), differences = 2))
+ur.df(diff(log(cap$ko), differences = 2), type = 'drift', lags = 4, selectlags = 'Fixed')
+adf.test(diff(log(cap$ko), differences = 2), alternative = 'stationary', k = 4)
+pp.test(diff(log(cap$ko), differences = 2), alternative = 'stationary') 
+kpss.test(diff(log(cap$ko), differences = 2))
+
+pacf(diff(log(cap$ind), differences = 2))
+ur.df(diff(log(cap$ind), differences = 2), type = 'drift', lags = 2, selectlags = 'Fixed')
+adf.test(diff(log(cap$ind), differences = 2), alternative = 'stationary', k = 2)
+pp.test(diff(log(cap$ind), differences = 2), alternative = 'stationary') 
+kpss.test(diff(log(cap$ind), differences = 2))
+
+pacf(diff(log(cap$th), differences = 2))
+ur.df(diff(log(cap$th), differences = 2), type = 'drift', lags = 10, selectlags = 'Fixed')
+adf.test(diff(log(cap$th), differences = 2), alternative = 'stationary', k = 10)
+pp.test(diff(log(cap$th), differences = 2), alternative = 'stationary') 
+kpss.test(diff(log(cap$th), differences = 2))
+```
+
+Построение наиболее оптимальных ARMA моделей 
+
+```{r}
+eacf(diff(log(cap$ch), differences = 2))
+ARMA_ch = Arima(log(cap$ch), c(2,2,0), include.constant = TRUE, method = c("CSS-ML"))
+Box.test(residuals(ARMA_ch), lag = log(60), type = c("Ljung-Box"), fitdf = 2)
+forecast_ARMA_ch = forecast(ARMA_ch, h = 30)
+# d^2(Yt) = -0.4077*d^2Yt-1 - 0.4731*d^2Yt-2 + Et; Et ~ N(0, 0.001759) 
+# скорее всего не так..... потому что это же разность
+
+eacf(diff(log(cap$ja), differences = 2))
+ARMA_ja = Arima(log(cap$ja), c(2,2,0), include.constant = TRUE, method = c("CSS-ML"))
+Box.test(residuals(ARMA_ja), lag = log(60), type = c("Ljung-Box"), fitdf = 2)
+forecast_ARMA_ja = forecast(ARMA_ja, h = 30)
+
+eacf(diff(log(cap$ko), differences = 2))
+ARMA_ko = Arima(log(cap$ko), c(2,2,0), include.constant = TRUE, method = c("CSS-ML"))
+Box.test(residuals(ARMA_ko), lag = log(60), type = c("Ljung-Box"), fitdf = 2)
+forecast_ARMA_ko = forecast(ARMA_ko, h = 30)
+
+eacf(diff(log(cap$ind), differences = 2))
+ARMA_ind = Arima(log(cap$ind), c(1,2,0), include.constant = TRUE, method = c("CSS-ML"))
+Box.test(residuals(ARMA_ind), lag = log(60), type = c("Ljung-Box"), fitdf = 1)
+forecast_ARMA_ind = forecast(ARMA_ind, h = 30)
+# d^2(Yt) = -0.3412*d^2Yt-1 + Et; Et ~ N(0, 0.001414) 
+
+eacf(diff(log(cap$th), differences = 2))
+ARMA_th = Arima(log(cap$th), c(0,2,0), include.constant = TRUE, method = c("CSS-ML"))
+Box.test(residuals(ARMA_th), lag = log(60), type = c("Ljung-Box"), fitdf = 0)
+forecast_ARMA_th = forecast(ARMA_th, h = 30)
+# d^2(Yt) = Et; Et ~ N(0, 0.00128) 
+```
+
+Прогноз с помощью простой ARMA модели
+
+```{r}
+fun = function(x, y, z){
+  forecast = forecast(x, h = 30)
+  data = exp(data.frame(forecast)) %>% rownames_to_column(var = 'ye') #экспонированный фокаст
+  
+  aren22 = data %>% select(ye, Point.Forecast) %>% rename(cap = Point.Forecast) #выделила чисто прогноз из всего фокаста
+  aren = data.frame(cap = y) %>% rownames_to_column(var = 'ye') #исходные данные
+  zebros = rep('', length(aren$cap))
+
+  aren = aren %>% rbind.data.frame(aren22) #от исходных до прогноза
+
+  lowshit = cbind(c(zebros, data$Lo.95))
+  hishit = cbind(c(zebros, data$Hi.95))
+  lowshitt = cbind(c(zebros, data$Lo.80))
+  hishitt = cbind(c(zebros, data$Hi.80))
+  mid = data.frame(cap = cbind(c(zebros, aren22$cap))) %>% rownames_to_column(var = 'ye')
+
+  aren = aren %>% mutate(low95 = lowshit, hi95 = hishit, low85 = lowshitt, hi85 = hishitt)
+
+  plot(aren$ye, aren$cap, type = 'l', main = z, xlab = "observation number", ylab = "GDP per capita")
+  lines(aren$low95, type = 'l', col = '#CEBBDA', lty = 2)
+  lines(aren$hi95, type = 'l', col = '#CEBBDA', lty = 2)
+  lines(aren$low85, type = 'l', col = '#CEBBDA')
+  lines(aren$hi85, type = 'l', col = '#CEBBDA')
+  lines(mid$cap, col = '#9B00FF')
+
+}
+
+fun(ARMA_ch, cap$ch, 'Hong Kong')
+fun(ARMA_ja, cap$ja, 'Japan')
+fun(ARMA_ko, cap$ko, 'South Korea')
+fun(ARMA_ind, cap$ind, 'Indonesia')
+fun(ARMA_th, cap$th, 'Thailand')
+```
+
+Проверим ряды на ARCH эффект
+
+```{r}
+#проверим автокорреляцию квадрата остатков
+#должно быть больше 0.05 чтобы не было автокорреляции
+
+Box.test(residuals(ARMA_ch)^2, lag = log(60), type = c("Ljung-Box"), fitdf = 2)
+
+Box.test(residuals(ARMA_ja)^2, lag = log(60), type = c("Ljung-Box"), fitdf = 2)
+
+Box.test(residuals(ARMA_ko)^2, lag = log(60), type = c("Ljung-Box"), fitdf = 2)
+
+Box.test(residuals(ARMA_ind)^2, lag = log(60), type = c("Ljung-Box"), fitdf = 1)
+
+Box.test(residuals(ARMA_th)^2, lag = log(60), type = c("Ljung-Box"), fitdf = 0)
+```
+
+ARCH эффект отсутствует на 5% уровне значимости
+
+Проверим данные на наличие разрывов
+
+```{r}
+c = diff(log(cap$ch), differences = 2)
+j = diff(log(cap$ja), differences = 2)
+k = diff(log(cap$ko), differences = 2)
+i = diff(log(cap$ind), differences = 2)
+t = diff(log(cap$th), differences = 2)
+
+#первые лаги разностей
+c_l1 = c(0, c[1:length(c) - 1])
+j_l1 = c(0, j[1:length(j) - 1])
+k_l1 = c(0, k[1:length(k) - 1])
+i_l1 = c(0, i[1:length(i) - 1])
+t_l1 = c(0, t[1:length(t) - 1])
+
+#вторые лаги разностей
+c_l2 = c(0, c[1:length(c_l1) - 1])
+j_l2 = c(0, j[1:length(j_l1) - 1])
+k_l2 = c(0, k[1:length(k_l1) - 1])
+i_l2 = c(0, i[1:length(i_l1) - 1])
+t_l2 = c(0, t[1:length(t_l1) - 1])
+```
+
+Hong Kong ----------------------------------------------------------------------
+(модель AR_2)
+
+```{r}
+stat = Fstats(c ~ c_l1 + c_l2, from = 0.1, to = NULL)
+sctest(stat, type = 'supF')
+#p-value > 0.05 разрыва нет
+
+stat = efp(c ~ c_l1 + c_l2, type = 'OLS-CUSUM')
+sctest(stat, functional = NULL)
+#p-value > 0.05 разрыва нет
+
+stat = efp(c ~ c_l1 + c_l2, type = 'OLS-MOSUM', h = 0.5)
+sctest(stat, functional = NULL)
+#p-value > 0.05 разрыва нет
+
+stat = efp(c ~ c_l1 + c_l2, type = 'Rec-CUSUM')
+sctest(stat, functional = NULL)
+#p-value > 0.05 разрыва нет
+
+stat = efp(c ~ c_l1 + c_l2, type = 'Rec-MOSUM', h = 0.5)
+sctest(stat, functional = NULL)
+#p-value > 0.05 разрыва нет
+
+stat = efp(c ~ c_l1, type = "RE", h = 0.5) #не работает когда c_l1 + c_l2 --> похуй))
+sctest(stat)
+#p-value > 0.05 разрыва нет
+
+stat = efp(c ~ c_l1, type = "ME", h = 0.5)
+sctest(stat)
+#p-value > 0.05 разрыва нет
+
+
+stat = breakpoints(c ~ c_l1 + c_l2)
+summary(stat)
+#BIC минимальный на первом разрыве
+```
+
+Japan --------------------------------------------------------------------------
+(модель AR_2)
+
+```{r}
+stat = Fstats(j ~ j_l1 + j_l2, from = 0.1, to = NULL)
+sctest(stat, type = 'supF')
+#p-value > 0.05 разрыва нет
+
+stat = efp(j ~ j_l1 + j_l2, type = 'OLS-CUSUM')
+sctest(stat, functional = NULL)
+#p-value > 0.05 разрыва нет
+
+stat = efp(j ~ j_l1 + j_l2, type = 'OLS-MOSUM', h = 0.5)
+sctest(stat, functional = NULL)
+#p-value > 0.05 разрыва нет
+
+stat = efp(j ~ j_l1 + j_l2, type = 'Rec-CUSUM')
+sctest(stat, functional = NULL)
+#p-value > 0.05 разрыва нет
+
+stat = efp(j ~ j_l1 + j_l2, type = 'Rec-MOSUM', h = 0.5)
+sctest(stat, functional = NULL)
+#p-value > 0.05 разрыва нет
+
+stat = efp(j ~ j_l1, type = "RE", h = 0.5)
+sctest(stat)
+#p-value > 0.05 разрыва нет
+
+stat = efp(j ~ j_l1, type = "ME", h = 0.5)
+sctest(stat)
+#p-value > 0.05 разрыва нет
+
+
+stat = breakpoints(j ~ j_l1 + j_l2)
+summary(stat)
+#BIC минимальный на нулевом разрыве
+```
+
+South Korea --------------------------------------------------------------------
+(модель AR_2)
+
+```{r}
+stat = Fstats(k ~ k_l1 + k_l2, from = 0.1, to = NULL)
+sctest(stat, type = 'supF')
+#p-value > 0.05 разрыва нет
+
+stat = efp(k ~ k_l1 + k_l2, type = 'OLS-CUSUM')
+sctest(stat, functional = NULL)
+#p-value > 0.05 разрыва нет
+
+stat = efp(k ~ k_l1 + k_l2, type = 'OLS-MOSUM', h = 0.5)
+sctest(stat, functional = NULL)
+#p-value > 0.05 разрыва нет
+
+stat = efp(k ~ k_l1 + k_l2, type = 'Rec-CUSUM')
+sctest(stat, functional = NULL)
+#p-value > 0.05 разрыва нет
+
+stat = efp(k ~ k_l1 + k_l2, type = 'Rec-MOSUM', h = 0.5)
+sctest(stat, functional = NULL)
+#p-value > 0.05 разрыва нет
+
+stat = efp(k ~ k_l1, type = "RE", h = 0.5)
+sctest(stat)
+#p-value > 0.05 разрыва нет
+
+stat = efp(k ~ k_l1, type = "ME", h = 0.5)
+sctest(stat)
+#p-value > 0.05 разрыва нет
+
+
+stat = breakpoints(k ~ k_l1)
+summary(stat)
+#BIC минимальный на нулевом разрыве
+```
+
+Indonesia ----------------------------------------------------------------------
+(модель AR_1)
+
+```{r}
+stat = Fstats(i ~ i_l1, from = 0.1, to = NULL)
+sctest(stat, type = 'supF')
+#p-value > 0.05 разрыва нет
+
+stat = efp(i ~ i_l1, type = 'OLS-CUSUM')
+sctest(stat, functional = NULL)
+#p-value > 0.05 разрыва нет
+
+stat = efp(i ~ i_l1, type = 'OLS-MOSUM', h = 0.5)
+sctest(stat, functional = NULL)
+#p-value > 0.05 разрыва нет
+
+stat = efp(i ~ i_l1, type = 'Rec-CUSUM')
+sctest(stat, functional = NULL)
+#p-value > 0.05 разрыва нет
+
+stat = efp(i ~ i_l1, type = 'Rec-MOSUM', h = 0.5)
+sctest(stat, functional = NULL)
+#p-value > 0.05 разрыва нет
+
+stat = efp(i ~ i_l1, type = "RE", h = 0.5)
+sctest(stat)
+#p-value > 0.05 разрыва нет
+
+stat = efp(i ~ i_l1, type = "ME", h = 0.5)
+sctest(stat)
+#p-value > 0.05 разрыва нет
+
+
+stat = breakpoints(i ~ i_l1)
+summary(stat)
+#BIC минимальный на втором разрыве
+```
+
+Thailand -----------------------------------------------------------------------
+(модель AR_0)
+
+```{r}
+stat = Fstats(t ~ t_l1, from = 0.1, to = NULL)
+sctest(stat, type = 'supF')
+#p-value > 0.05 разрыва нет
+
+stat = efp(t ~ t_l1, type = 'OLS-CUSUM')
+sctest(stat, functional = NULL)
+#p-value > 0.05 разрыва нет
+
+stat = efp(t ~ t_l1, type = 'OLS-MOSUM', h = 0.5)
+sctest(stat, functional = NULL)
+#p-value > 0.05 разрыва нет
+
+stat = efp(t ~ t_l1, type = 'Rec-CUSUM')
+sctest(stat, functional = NULL)
+#p-value > 0.05 разрыва нет
+
+stat = efp(t ~ t_l1, type = 'Rec-MOSUM', h = 0.5)
+sctest(stat, functional = NULL)
+#p-value > 0.05 разрыва нет
+
+stat = efp(t ~ t_l1, type = "RE", h = 0.5)
+sctest(stat)
+#p-value > 0.05 разрыва нет
+
+stat = efp(t ~ t_l1, type = "ME", h = 0.5)
+sctest(stat)
+#p-value > 0.05 разрыва нет
+
+
+stat = breakpoints(t ~ t_l1)
+summary(stat)
+#BIC минимальный на нулевом разрыве
+```
+
+Разрывов в данных по ВВП на душу населения не обнаружилось. Значит, простые модели ARMA релевантны для предсказания 
+
+Коинтеграция ВВП на душу населения
+
+```{r}
+#Коинтеграция рядов - возможность получения стационарного ряда через линейную комбинацию двух (или более) нестационарных интегрированных рядов. 
+#Главная мысль состоит в том, чтобы, применяя линейную зависимость, получить из нескольких нестационарных интегрированных рядов, стационарную зависимость.
+
+pacf(diff(log(cap$ind), differences = 1))
+ur.df(diff(log(cap$ind), differences = 1), type = 'drift', lags = 1, selectlags = 'Fixed')
+
+pacf(diff(log(cap$ch), differences = 1))
+ur.df(diff(log(cap$ch), differences = 1), type = 'drift', lags = 1, selectlags = 'Fixed')
+
+pacf(diff(log(cap$th), differences = 1))
+ur.df(diff(log(cap$th), differences = 1), type = 'drift', lags = 1, selectlags = 'Fixed')
+```
+
+Показатели логарифма ВВП на душу населения Индонезии, Гонконга и Таиланда не могут быть проверены на коинтеграцию, поскольку они стационарны на 1 разности, в то время, как оставшиеся страны, на 2ой. Но на всякий случай мы их чекнем (Ичтикос так сказал).
+
+```{r}
+#!!! я думаю надо было все-таки чекать коинтеграцию на 1х разностях!!!
+china = log(cap$ch)
+japan = log(cap$ja)
+korea = log(cap$ko)
+indon = log(cap$ind)
+thail = log(cap$th)
+
+#тест Йохансена для всех переменных, ну просто удостовериться что только 2 будут
+df = data.frame(china, japan, korea, indon, thail)
+sjd.vecm = ca.jo(df, ecdet = 'const', type = 'eigen', K = 2, spec = 'transitory', season = NULL)
+summary(sjd.vecm)
+#на 5% уровне значимости коинтегрированы 2 переменные - как раз потому что только 2 адекватно чекать на коинтеграцию
+
+
+
+#упрощенный тест коинтеграции, подходит только для <= 2 переменных. как раз наши возможные страны
+coint = lm(japan ~ korea)
+pacf(coint$residuals)
+
+ur.df(coint$residuals, type = 'drift', lags = 1, selectlags = 'Fixed')
+#-2.18 > -3.34
+ur.df(coint$residuals, type = 'trend', lags = 1, selectlags = 'Fixed')
+#-3.8 < -3.78
+
+
+
+#тест Йохансена для только двух возможных переменных
+df = data.frame(japan, korea)
+sjd.vecm = ca.jo(df, ecdet = 'const', type = 'eigen', K = 2, spec = 'transitory', season = NULL)
+summary(sjd.vecm)
+#на 5% уровне значимости коинтегрированы 2 переменные
+```
+
+Рассмотрим причинно-следственные связи между коинтегрированными ВВП на душу населения
+
+```{r}
+ccf(japan, korea, lag.max = 15, type = c('correlation'), plot = TRUE, main = '')
+  #granger test
+  JK = data.frame('korea' = grangertest(japan, korea, order = 15)[,"Pr(>F)"]) %>% na.omit
+  KJ = data.frame('japan' = grangertest(korea, japan, order = 12)[,"Pr(>F)"]) %>% na.omit
+  
+  
+japan = c('NA', JK$korea)
+korea = c(KJ$japan, 'NA')
+
+cointegrated = data.frame(variables = c('japan', 'korea'), japan, korea)
+```
+
+Построим модели коинтеграции для всех стран на основе причинно-следственных связей всех коинтегрированных переменных
+Модели коинтегрированных стран будут представлять собой линейную комбинацию моделей на 1ой разности
+
+```{r}
+japan = log(cap$ja)
+korea = log(cap$ko)
+
+new_ARMA_ja = Arima(log(cap$ja), c(2,1,0), include.constant = TRUE, method = c("CSS-ML"))
+Box.test(residuals(new_ARMA_ja), lag = log(60), type = c("Ljung-Box"), fitdf = 2)
+new_forecast_ARMA_ja = forecast(new_ARMA_ja, h = 30)
+
+new_ARMA_ko = Arima(log(cap$ko), c(2,1,0), include.constant = TRUE, method = c("CSS-ML"))
+Box.test(residuals(new_ARMA_ko), lag = log(60), type = c("Ljung-Box"), fitdf = 2)
+new_forecast_ARMA_ko = forecast(new_ARMA_ko, h = 30)
+
+
+
+japan_cult = lm(japan ~ korea)
+japan_model = exp(data.frame(new_forecast_ARMA_ko) * summary(japan_cult)$coefficients[2,1] + #korea
+                                                   + summary(japan_cult)$coefficients[1,1])  #intercept
+
+korea_cult = lm(korea ~ japan)
+korea_model = exp(data.frame(new_forecast_ARMA_ja) * summary(korea_cult)$coefficients[2,1] + #japan
+                                                   + summary(korea_cult)$coefficients[1,1])  #intercept
+
+
+korea_model_retarded = exp(data.frame(new_forecast_ARMA_ja) * summary(korea_cult)$coefficients[2,1] - 13.848921)
+```
+
+Прогнозы многомерных моделей
+
+```{r}
+fun = function(x, y, z){
+  data = x %>% rownames_to_column(var = 'ye')
+
+  aren22 = data %>% select(ye, Point.Forecast) %>% rename(cap = Point.Forecast) #выделила чисто прогноз из всего фокаста
+  aren = data.frame(cap = y) %>% rownames_to_column(var = 'ye') #исходные данные
+  zebros = rep('', length(aren$cap))
+
+  aren = aren %>% rbind.data.frame(aren22) #от исходных до прогноза
+
+  lowshit = cbind(c(zebros, data$Lo.95))
+  hishit = cbind(c(zebros, data$Hi.95))
+  lowshitt = cbind(c(zebros, data$Lo.80))
+  hishitt = cbind(c(zebros, data$Hi.80))
+  mid = data.frame(cap = cbind(c(zebros, aren22$cap))) %>% rownames_to_column(var = 'ye')
+
+  aren = aren %>% mutate(low95 = lowshit, hi95 = hishit, low85 = lowshitt, hi85 = hishitt)
+
+  plot(aren$ye, aren$cap, type = 'l', main = str_c('Multiplicative ', z), xlab = "observation number", ylab = "GDP per capita")
+  lines(aren$low95, type = 'l', col = '#B89D97', lty = 2)
+  lines(aren$hi95, type = 'l', col = '#B89D97', lty = 2)
+  lines(aren$low85, type = 'l', col = '#B89D97')
+  lines(aren$hi85, type = 'l', col = '#B89D97')
+  lines(mid$cap, col = '#A2402A')
+
+}
+
+fun(japan_model, cap$ja, 'Japan')
+fun(korea_model_retarded, cap$ko, 'South Korea')
+```
+
+Поскольку 3 страны: Индонезия, Гонконг и Таиланд не коинтегрированы, используем модель VAR для предсказания значений
+Повторно рассмотрим причинно-следственные связи, всех переменных. 
+
+```{r}
+china = diff(log(cap$ch), differences = 2)
+japan = diff(log(cap$ja), differences = 2)
+korea = diff(log(cap$ko), differences = 2)
+indon = diff(log(cap$ind), differences = 2)
+thail = diff(log(cap$th), differences = 2)
+
+
+ccf(china, japan, lag.max = 15, type = c('correlation'), plot = TRUE, main = '')
+  #granger test
+  CJ = data.frame('japan' = grangertest(china, japan, order = 11)[,"Pr(>F)"]) %>% na.omit
+  JC = data.frame('china' = grangertest(japan, china, order = 15)[,"Pr(>F)"]) %>% na.omit
+
+ccf(china, korea, lag.max = 15, type = c('correlation'), plot = TRUE, main = '')
+  #granger test
+  CK = data.frame('korea' = grangertest(china, korea, order = 14)[,"Pr(>F)"]) %>% na.omit
+  KC = data.frame('china' = grangertest(korea, china, order = 15)[,"Pr(>F)"]) %>% na.omit
+
+ccf(china, indon, lag.max = 15, type = c('correlation'), plot = TRUE, main = '')
+  #granger test
+  CI = data.frame('indonesia' = grangertest(china, indon, order = 15)[,"Pr(>F)"]) %>% na.omit
+  IC = data.frame('china' = grangertest(indon, china, order = 14)[,"Pr(>F)"]) %>% na.omit
+
+ccf(china, thail, lag.max = 15, type = c('correlation'), plot = TRUE, main = '')
+  #granger test
+  CT = data.frame('thailand' = grangertest(china, thail, order = 14)[,"Pr(>F)"]) %>% na.omit
+  TC = data.frame('china' = grangertest(thail, china, order = 15)[,"Pr(>F)"]) %>% na.omit  
+  
+ccf(japan, korea, lag.max = 15, type = c('correlation'), plot = TRUE, main = '')
+  #granger test
+  JK = data.frame('korea' = grangertest(japan, korea, order = 15)[,"Pr(>F)"]) %>% na.omit
+  KJ = data.frame('japan' = grangertest(korea, japan, order = 11)[,"Pr(>F)"]) %>% na.omit
+
+ccf(japan, indon, lag.max = 15, type = c('correlation'), plot = TRUE, main = '')
+  #granger test
+  JI = data.frame('indonesia' = grangertest(japan, indon, order = 15)[,"Pr(>F)"]) %>% na.omit
+  IJ = data.frame('japan' = grangertest(indon, japan, order = 11)[,"Pr(>F)"]) %>% na.omit
+  
+ccf(japan, thail, lag.max = 15, type = c('correlation'), plot = TRUE, main = '')
+  #granger test
+  JT = data.frame('thailand' = grangertest(japan, thail, order = 15)[,"Pr(>F)"]) %>% na.omit
+  TJ = data.frame('japan' = grangertest(thail, japan, order = 12)[,"Pr(>F)"]) %>% na.omit  
+
+ccf(korea, indon, lag.max = 15, type = c('correlation'), plot = TRUE, main = '')
+  #granger test
+  KI = data.frame('indonesia' = grangertest(korea, indon, order = 15)[,"Pr(>F)"]) %>% na.omit
+  IK = data.frame('korea' = grangertest(indon, korea, order = 13)[,"Pr(>F)"]) %>% na.omit
+
+ccf(korea, thail, lag.max = 15, type = c('correlation'), plot = TRUE, main = '')
+  #granger test
+  KT = data.frame('thailand' = grangertest(korea, thail, order = 14)[,"Pr(>F)"]) %>% na.omit
+  TK = data.frame('korea' = grangertest(thail, korea, order = 15)[,"Pr(>F)"]) %>% na.omit 
+  
+ccf(indon, thail, lag.max = 15, type = c('correlation'), plot = TRUE, main = '')
+  #granger test
+  IT = data.frame('thailand' = grangertest(indon, thail, order = 13)[,"Pr(>F)"]) %>% na.omit
+  TI = data.frame('indonesia' = grangertest(thail, indon, order = 15)[,"Pr(>F)"]) %>% na.omit  
+  
+
+china = c('NA', CJ$japan, CK$korea, CI$indonesia, CT$thailand)
+japan = c(JC$china, 'NA', JK$korea, JI$indonesia, JT$thailand)
+korea = c(KC$china, KJ$japan, 'NA', KI$indonesia, KT$thailand)
+indonesia = c(IC$china, IJ$japan, IK$korea, 'NA', IT$thailand)
+thailand = c(TC$china, TJ$japan, TK$korea, TI$indonesia, 'NA')
+
+cointegrated = data.frame(variables = c('china', 'japan', 'korea', 'indonesia', 'thailand'), china, japan, korea, indonesia, thailand)
+```
+
+Построение VAR и сравнение с простыми ARMA.
+
+```{r}
+indon = diff(log(cap$ind), differences = 2)
+japan = diff(log(cap$ja), differences = 2)
+
+
+df = data.frame(indon, japan)
+VARselect(df, lag.max = 32, type = 'const')
+var = VAR(df, p = 13, type = 'const')
+model = ARMA_ind
+
+#параметры ARMA
+n = length(coef(model)) - 1
+x = var$p - n + 1
+rss = sum(model$residuals[x : length(residuals(model))]^2)
+R2 = 1 - rss/sum((indon[x:length(indon)]-mean(indon[x:length(indon)]))^2)
+adjR2 = 1 - (1-R2)*(length(residuals(model))-1)/(length(residuals(model))-n-1-1)
+
+n1 = var$varresult$indon$rank - 1
+ess1 = sum(var$varresult$indon$residuals^2)
+Fstat = ((rss-ess1)/(n1-n))/(ess1/(length(indon)-2*n1-1))
+pf(Fstat, n1-n, length(indon)-2*n1-1, lower.tail=F)
+```

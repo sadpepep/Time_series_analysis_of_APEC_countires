@@ -1,0 +1,71 @@
+---
+title: "models all together"
+output: html_document
+---
+
+```{r}
+#population best models * capita best models
+CHINA = exp(data.frame(forecast_ARMA_c))*exp(data.frame(forecast_ARMA_ch))
+
+JAPAN = exp(data.frame(forecast_ARMA_j))*japan_model
+
+KOREA = exp(data.frame(forecast_ARMA_k))*korea_model_retarded
+
+INDONESIA = exp(data.frame(forecast_ARMA_i))*exp(data.frame(forecast_ARMA_ind))
+
+THAILAND = exp(data.frame(forecast_ARMA_t))*exp(data.frame(forecast_ARMA_th))
+
+
+#best GDP models
+CHINA_original = china_model_GDP
+
+JAPAN_original = japan_model_GDP
+
+KOREA_original = korea_model_GDP
+
+INDONESIA_original = exp(data.frame(forecast_ARMA_ind_GDP))
+
+THAILAND_original = exp(data.frame(forecast_ARMA_th_GDP))
+```
+
+```{r}
+daamn = function(x, y, k, z, lim){
+  data = x %>% rownames_to_column(var = 'ye')
+  h = 30  
+  data$ye = seq(from = length(y)+1, to = length(y)+h, by = 1)
+
+  aren22 = data %>% dplyr:: select(ye, Point.Forecast) %>% rename(cap = Point.Forecast) #выделила чисто прогноз из всего фокаста
+  aren = data.frame(cap = y) %>% rownames_to_column(var = 'ye') #исходные данные
+  zebros = rep('', length(aren$cap))
+
+  aren = aren %>% rbind.data.frame(aren22) #от исходных до прогноза
+
+  lowshit = cbind(c(zebros, data$Lo.95))
+  hishit = cbind(c(zebros, data$Hi.95))
+  lowshitt = cbind(c(zebros, data$Lo.80))
+  hishitt = cbind(c(zebros, data$Hi.80))
+  mid = data.frame(cap = cbind(c(zebros, aren22$cap))) %>% rownames_to_column(var = 'ye')
+  mid_original = data.frame(gdp = cbind(c(zebros, k$Point.Forecast))) %>% rownames_to_column(var = 'ye')
+  
+  aren = aren %>% mutate(low95 = lowshit, hi95 = hishit, low85 = lowshitt, hi85 = hishitt)
+
+  plot(aren$ye, aren$cap, type = 'l', main = str_c('GDP comparison ', z), xlab = "observation number", ylab = "GDP", ylim = c(0,lim))
+  lines(aren$low95, type = 'l', col = '#d5beca', lty = 2)
+  lines(aren$hi95, type = 'l', col = '#d5beca', lty = 2)
+  lines(aren$low85, type = 'l', col = '#d5beca')
+  lines(aren$hi85, type = 'l', col = '#d5beca')
+  lines(mid$cap, col = '#ff0093', lwd = 2)
+  lines(mid_original$gdp, col = '#93496f', lwd = 2)
+
+}
+
+daamn(CHINA, gdp$ch, CHINA_original, 'Honkong', 1000000000000)
+daamn(JAPAN, gdp$ja, JAPAN_original, 'Japan', 10000000000000)
+daamn(KOREA, gdp$ko, KOREA_original, 'South Korea', 10000000000000)
+daamn(INDONESIA, gdp$ind, INDONESIA_original, 'Indonesia', 1200000000000)
+daamn(THAILAND, gdp$th, THAILAND_original, 'Thailand', 500000000000)
+```
+
+
+
+
